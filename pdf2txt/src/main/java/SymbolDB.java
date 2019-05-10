@@ -11,11 +11,12 @@ public class SymbolDB {
         URL url = Resources.getResource("expanded_symbol_db.json");
         String text = Resources.toString(url, Charsets.US_ASCII);
         db = new JSONObject(text);
-        System.out.println(text.substring(0, 100));
+        //System.out.println(text.substring(0, 100));
     }
     public JSONObject getInfo(String font, int code) throws JSONException {
             JSONObject fontDict = (JSONObject) db.get(font);
+            JSONObject codeDict = (JSONObject) fontDict.get("values");
             String codeStr = Integer.toString(code);
-            return (JSONObject) fontDict.get(codeStr);
+            return (JSONObject) codeDict.get(codeStr);
     }
 }

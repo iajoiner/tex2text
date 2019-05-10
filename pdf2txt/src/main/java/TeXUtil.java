@@ -3,11 +3,9 @@ import org.apache.pdfbox.pdmodel.font.PDFont;
 import org.json.JSONException;
 import org.json.JSONObject;
 
-import java.awt.*;
 import java.io.IOException;
-import java.util.Dictionary;
-import java.util.Enumeration;
 import java.util.Hashtable;
+import java.util.Iterator;
 import java.util.Stack;
 
 public class TeXUtil {
@@ -16,26 +14,23 @@ public class TeXUtil {
     private String fs;
     private boolean mathMode;
     private SymbolDB db;
-    private Hashtable<String, String> maccDict;
+    float endY;//Positions
+    float endX;
+    float Y;
+    int height;//Height
+    //boolean test;
     public TeXUtil() throws IOException {
         ssstatus = new Stack<SSStatus>();
         fs = "rm";
         accentMode = false;//as in the state of being right after an accent
         mathMode = false;
         db = new SymbolDB();
-        maccDict = new Hashtable<String, String>();
-        maccDict.put("\\vec","\\vec");
-        maccDict.put("\\widehat","\\widehat");
-        maccDict.put("\\widetilde","\\widetilde");
-        maccDict.put("\\^","\\hat");
-        maccDict.put("\\v","\\check");
-        maccDict.put("\\u","\\breve");
-        maccDict.put("\\`","\\grave");
-        maccDict.put("\\~","\\tilde");
-        maccDict.put("\\=","\\bar");
-        maccDict.put("\\.","\\dot");
-        maccDict.put("\\","\\ddot");
-        maccDict.put("\\'","\\acute");
+        endY = 0;
+        endX = 0;
+        Y = 0;
+        height = 0;
+        //test = false;
+        //System.out.println("TeXUtil initialized!");
     }
     private static String fontShortName(PDFont font) {
         String[] segments = font.getName().split("\\+");
@@ -53,38 +48,64 @@ public class TeXUtil {
         JSONObject info = db.getInfo(shortFontName, code);
         return info.getString("value");
     }
-    private String fullTextToTeX(PDFont font, int code){
-        String shortFontName = fontShortName(font);
+    public String fullTextToTeX(PDFont font, int code, float newEndX, float newY, float newEndY){
+        String shortFontName = fontClass(font);
         try {
             JSONObject info = db.getInfo(shortFontName, code);
             String teXCode = info.getString("value");
             StringBuilder preamble1 = new StringBuilder("");
             StringBuilder preamble2 = new StringBuilder("");
             StringBuilder postamble = new StringBuilder("");
-            Boolean text = info.getBoolean("text");
-            Boolean math = info.getBoolean("math");
-            Boolean tacc = info.getBoolean("tacc");
-            Boolean macc = info.getBoolean("macc");
-            String newFont = info.getString("font");
+            String usage = info.getString("usage");
+            String newFont;
+            if (info.has("font"))
+                newFont = info.getString("font");
+            else
+                newFont = "";
+            int newHeight = fontHeight(font);
             //Font change, rm is seen as having no font
             if (!newFont.equals(fs)) {
-                if (!fs.equals("rm"))
+                if (!fs.isEmpty())
                     preamble1.insert(0, '}');
-                if (!newFont.equals("rm")) {
+                if (!newFont.isEmpty()) {
                     preamble2.append('\\');
                     preamble2.append(newFont);
                     preamble2.append('{');
                 }
+               //preamble1.insert(0,  " fs = " + fs + " nFs = " + newFont + "\n");
                 fs = newFont;
             }
+            if (height == 0) {
+                //preamble2.append(" Meow! am = " + accentMode + " fs = " + fs + " mm = " + mathMode + "\n");
+            }
             //Subscripts/Superscripts
-
+            if (height > newHeight && newEndX > endX) {//New subscript/superscript
+                if (newEndY < endY) {//New superscript
+                    //ssstatus.push(SSStatus.SUP);
+                    preamble2.insert(0, "^{");
+                }
+                else if (newY > Y) {//New subscript
+                    //ssstatus.push(SSStatus.SUB);
+                    preamble2.insert(0, "_{");
+                }
+                //else {
+                  //  System.out.println("Please investigate the situation: texcode = " + teXCode + "endY = " + endY + " Y=" + Y + " endX=" + endX + " newEndY=" + newEndY + " newY=" + newY + " newEndX= " + newEndX);
+                //}
+            }
+            else if (height < newHeight && height != 0) {
+                //ssstatus.pop();
+                preamble1.append('}');
+            }
+            height = newHeight;
+            endX = newEndX;
+            endY = newEndY;
+            Y = newY;
             //Enter or leave math mode
-            if (mathMode && !math && !macc) {
+            if (mathMode && (usage == "t" || usage == "ta")) {
                 mathMode = false;
                 preamble1.append('$');
             }
-            else if (!mathMode && !text && !tacc) {
+            else if (!mathMode && (usage == "m" || usage == "ma")) {
                 mathMode = true;
                 preamble2.insert(0,'$');
             }
@@ -93,15 +114,24 @@ public class TeXUtil {
                 postamble.append('}');
                 accentMode = false;
             }
-            if ((mathMode && macc) || (!mathMode && tacc)) {//Right now assume that anything that can be an accent is an accent
+            if ((mathMode && (usage == "tma" || usage == "ma")) || (!mathMode && (usage == "tma" || usage == "ta"))) {//Right now assume that anything that can be an accent is an accent
                 postamble.append('{');
                 if (mathMode)
-                    teXCode = maccDict.get(teXCode);
+                    teXCode = info.getString("mav");
                 accentMode = true;
             }
+            if (teXCode.charAt(0) == '\\')
+                return preamble1.toString() + preamble2.toString() + teXCode + ' ' + postamble.toString();
+            else
+                return preamble1.toString() + preamble2.toString() + teXCode + postamble.toString();
         }
         catch(JSONException e) {
-            return "\\" + shortFontName + "{" + code + "}";
+            StringBuilder preamble = new StringBuilder("");
+            if (!fs.isEmpty()) {
+                preamble.append('}');
+                fs = "";
+            }
+            return preamble.toString() + "\\" + shortFontName + "{" + code + "}";
         }
     }
 }
