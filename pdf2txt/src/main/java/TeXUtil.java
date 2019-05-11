@@ -21,7 +21,7 @@ public class TeXUtil {
     //boolean test;
     public TeXUtil() throws IOException {
         ssstatus = new Stack<SSStatus>();
-        fs = "rm";
+        fs = "";
         accentMode = false;//as in the state of being right after an accent
         mathMode = false;
         db = new SymbolDB();
@@ -48,7 +48,51 @@ public class TeXUtil {
         JSONObject info = db.getInfo(shortFontName, code);
         return info.getString("value");
     }
-    public String fullTextToTeX(PDFont font, int code, float newEndX, float newY, float newEndY){
+    //Reset the state of TexUtil and produce an output that makes sure that all the brackets, dollar signs etc match.
+    public String clearState() {
+        StringBuilder preamble = new StringBuilder("");
+        if (!fs.isEmpty()) {
+            preamble.append('}');
+            fs = "";
+        }
+        if (accentMode) {
+            preamble.append('}');
+            accentMode = false;
+        }
+        while(!ssstatus.empty()) {
+            preamble.append('}');
+            ssstatus.pop();
+        }
+        if (mathMode) {
+            preamble.append('$');
+            mathMode = false;
+        }
+        return preamble.toString();
+    }
+    //Partially reset the state of TexUtil and produce an output that makes sure that all the brackets etc match.
+    public String leavingMathModeClearState() {
+        StringBuilder preamble = new StringBuilder("");
+        if (!fs.isEmpty()) {
+            preamble.append('}');
+            fs = "";
+        }
+        while(!ssstatus.empty()) {
+            preamble.append('}');
+            ssstatus.pop();
+        }
+        return preamble.toString();
+    }
+    //Partially reset the state of TexUtil and produce an output that makes sure that all the brackets etc match.
+    public String leavingTextModeClearState() {
+        StringBuilder preamble = new StringBuilder("");
+        if (!fs.isEmpty()) {
+            preamble.append('}');
+            fs = "";
+        }
+        return preamble.toString();
+    }
+    //Insert a whitespace between preamble1 and preamble2 if firstChar is true
+    public String fullTextToTeX(PDFont font, int code, float newEndX, float newY, float newEndY, boolean firstChar){
         String shortFontName = fontClass(font);
         try {
             JSONObject info = db.getInfo(shortFontName, code);
@@ -75,46 +119,50 @@ public class TeXUtil {
                //preamble1.insert(0,  " fs = " + fs + " nFs = " + newFont + "\n");
                 fs = newFont;
             }
-            if (height == 0) {
-                //preamble2.append(" Meow! am = " + accentMode + " fs = " + fs + " mm = " + mathMode + "\n");
-            }
             //Subscripts/Superscripts
             if (height > newHeight && newEndX > endX) {//New subscript/superscript
-                if (newEndY < endY) {//New superscript
-                    //ssstatus.push(SSStatus.SUP);
-                    preamble2.insert(0, "^{");
-                }
-                else if (newY > Y) {//New subscript
-                    //ssstatus.push(SSStatus.SUB);
+                if (newEndY < endY) {//New subscript
+                    ssstatus.push(SSStatus.SUB);
                     preamble2.insert(0, "_{");
+                }
+                else if (newY > Y) {//New superscript
+                    ssstatus.push(SSStatus.SUP);
+                    preamble2.insert(0, "^{");
                 }
                 //else {
                   //  System.out.println("Please investigate the situation: texcode = " + teXCode + "endY = " + endY + " Y=" + Y + " endX=" + endX + " newEndY=" + newEndY + " newY=" + newY + " newEndX= " + newEndX);
                 //}
             }
-            else if (height < newHeight && height != 0) {
-                //ssstatus.pop();
+            else if (height < newHeight && height != 0 && newEndX > endX && !ssstatus.empty()) {
+                ssstatus.pop();
                 preamble1.append('}');
+            }
+            //Enter or leave math mode
+            if (mathMode && (usage.equals("t") || usage.equals("ta"))) {
+                mathMode = false;
+                String clearState = leavingMathModeClearState();
+                preamble1.append(clearState);
+                preamble1.append("$");
+            }
+            else if (!mathMode && (usage.equals("m") || usage.equals("ma"))) {
+                mathMode = true;
+                String clearState = leavingTextModeClearState();
+                preamble1.insert(0, clearState);
+                preamble2.insert(0,'$');
+            }
+            if (firstChar) {//Add a whitespace before every word
+                preamble2.insert(0, " ");
             }
             height = newHeight;
             endX = newEndX;
             endY = newEndY;
             Y = newY;
-            //Enter or leave math mode
-            if (mathMode && (usage == "t" || usage == "ta")) {
-                mathMode = false;
-                preamble1.append('$');
-            }
-            else if (!mathMode && (usage == "m" || usage == "ma")) {
-                mathMode = true;
-                preamble2.insert(0,'$');
-            }
             //Accents
             if (accentMode) {//If accent mode is ever entered we need to leave it at once
                 postamble.append('}');
                 accentMode = false;
             }
-            if ((mathMode && (usage == "tma" || usage == "ma")) || (!mathMode && (usage == "tma" || usage == "ta"))) {//Right now assume that anything that can be an accent is an accent
+            if ((mathMode && (usage.equals("tma") || usage.equals("ma"))) || (!mathMode && (usage.equals("tma") || usage.equals("ta")))) {//Right now assume that anything that can be an accent is an accent
                 postamble.append('{');
                 if (mathMode)
                     teXCode = info.getString("mav");
@@ -126,12 +174,11 @@ public class TeXUtil {
                 return preamble1.toString() + preamble2.toString() + teXCode + postamble.toString();
         }
         catch(JSONException e) {
-            StringBuilder preamble = new StringBuilder("");
-            if (!fs.isEmpty()) {
-                preamble.append('}');
-                fs = "";
-            }
-            return preamble.toString() + "\\" + shortFontName + "{" + code + "}";
+            String clearPreamble = clearState();
+            if (firstChar)
+                return clearPreamble + " \\" + shortFontName + "{" + code + "}";
+            else
+                return clearPreamble + "\\" + shortFontName + "{" + code + "}";
         }
     }
 }
